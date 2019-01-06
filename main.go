@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/go-kit/kit/log/level"
 	"github.com/gorilla/handlers"
@@ -91,9 +93,26 @@ func main() {
 	// Catch All for Single-Origin proxy
 	router.PathPrefix("/").HandlerFunc(t.promFullProxyHandler).Methods("GET")
 
-	level.Info(t.Logger).Log("event", "proxy http endpoint starting", "address", t.Config.ProxyServer.ListenAddress, "port", t.Config.ProxyServer.ListenPort)
+	go func() {
+		// Start the Server
+		level.Info(t.Logger).Log("event", "proxy http endpoint starting", "address", t.Config.ProxyServer.ListenAddress, "port", t.Config.ProxyServer.ListenPort)
 
-	// Start the Server
-	err := http.ListenAndServe(fmt.Sprintf("%s:%d", t.Config.ProxyServer.ListenAddress, t.Config.ProxyServer.ListenPort), handlers.CompressHandler(router))
-	level.Error(t.Logger).Log("event", "exiting", "err", err)
+		err := http.ListenAndServe(fmt.Sprintf("%s:%d", t.Config.ProxyServer.ListenAddress, t.Config.ProxyServer.ListenPort), handlers.CompressHandler(router))
+		level.Error(t.Logger).Log("event", "exiting", "err", err)
+		os.Exit(1)
+	}()
+
+	signalCh := make(chan os.Signal, 1)
+	signal.Notify(signalCh, syscall.SIGHUP)
+
+	for sig := range signalCh {
+		switch sig {
+		case syscall.SIGHUP:
+			level.Info(t.Logger).Log("event", "HUP signal", "detail", "reloading configuration...")
+			err := loadConfiguration(t.Config, os.Args[1:])
+			if err != nil {
+				level.Error(t.Logger).Log("event", "reload configuration failure", "detail", err.Error())
+			}
+		}
+	}
 }

@@ -16,7 +16,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strconv"
 )
@@ -26,7 +25,7 @@ const (
 	cfConfig      = "config"
 	cfVersion     = "version"
 	cfLogLevel    = "log-level"
-	cfInstanceId  = "instance-id"
+	cfInstanceID  = "instance-id"
 	cfOrigin      = "origin"
 	cfProxyPort   = "proxy-port"
 	cfMetricsPort = "metrics-port"
@@ -42,42 +41,24 @@ const (
 // Loads the configs (w/ default values where missing)
 // and then evaluates any provided flags as overrides
 func loadConfiguration(c *Config, arguments []string) error {
-	var path string
-	var version bool
-
-	f := flag.NewFlagSet(applicationName, -1)
-	f.SetOutput(ioutil.Discard)
-	f.StringVar(&path, cfConfig, "", "Supplies Path to Config File")
-	f.BoolVar(&version, cfVersion, false, "Prints trickster version")
-	f.Parse(arguments)
-
-	// If the config file is not specified on the cmdline then try the default
-	// location to load the config file.  If the default config does not exist
-	// then move on, no big deal.
-	if path != "" {
-		if err := c.LoadFile(path); err != nil {
-			return err
-		}
-	} else {
-		_, err := os.Open(c.Main.ConfigFile)
-		if err == nil {
-			if err := c.LoadFile(c.Main.ConfigFile); err != nil {
-				return err
-			}
-		}
-	}
+	args := loadFlags(arguments)
 
 	// Display version information then exit the program
-	if version == true {
+	if args.version {
 		fmt.Println(applicationVersion)
 		os.Exit(3)
 	}
 
+	err := loadConfigurationFile(c, args)
+	if err != nil {
+		return err
+	}
+
+	// Set the configuration loaded from the arguments
+	args.setConfig(c)
+
 	// Load from Environment Variables
 	loadEnvVars(c)
-
-	//Load from command line flags.
-	loadFlags(c, arguments)
 
 	return nil
 }
@@ -109,35 +90,67 @@ func loadEnvVars(c *Config) {
 
 }
 
-// loadFlags loads configuration from command line flags.
-func loadFlags(c *Config, arguments []string) {
-	var path string
-	var version bool
-	var origin string
-	var proxyListenPort int
-	var metricsListenPort int
+type args struct {
+	path              string
+	origin            string
+	proxyListenPort   int
+	metricsListenPort int
+	logLevel          string
+	instanceID        int
+	version           bool
+}
+
+func (a args) setConfig(c *Config) {
+	if len(a.origin) > 0 {
+		c.DefaultOriginURL = a.origin
+	}
+	if a.proxyListenPort > 0 {
+		c.ProxyServer.ListenPort = a.proxyListenPort
+	}
+	if a.metricsListenPort > 0 {
+		c.Metrics.ListenPort = a.metricsListenPort
+	}
+	c.Logging.LogLevel = a.logLevel
+	c.Main.InstanceID = a.instanceID
+
+}
+
+// loadFlags loads command line flags.
+func loadFlags(arguments []string) args {
+	var args args
 
 	f := flag.NewFlagSet(applicationName, flag.ExitOnError)
-	f.BoolVar(&version, cfVersion, true, "Prints Trickster version")
-	f.StringVar(&c.Logging.LogLevel, cfLogLevel, c.Logging.LogLevel, "Level of Logging to use (debug, info, warn, error)")
-	f.IntVar(&c.Main.InstanceID, cfInstanceId, 0, "Instance ID for when running multiple processes")
-	f.StringVar(&origin, cfOrigin, "", "URL to the Prometheus Origin. Enter it like you would in grafana, e.g., http://prometheus:9090")
-	f.IntVar(&proxyListenPort, cfProxyPort, 0, "Port that the Proxy server will listen on.")
-	f.IntVar(&metricsListenPort, cfMetricsPort, 0, "Port that the /metrics endpoint will listen on.")
-
-	// BEGIN IGNORED FLAGS
-	f.StringVar(&path, cfConfig, "", "Path to Trickster Config File")
-	// END IGNORED FLAGS
+	f.StringVar(&args.logLevel, cfLogLevel, "INFO", "Level of Logging to use (debug, info, warn, error)")
+	f.IntVar(&args.instanceID, cfInstanceID, 0, "Instance ID for when running multiple processes")
+	f.StringVar(&args.origin, cfOrigin, "", "URL to the Prometheus Origin. Enter it like you would in grafana, e.g., http://prometheus:9090")
+	f.IntVar(&args.proxyListenPort, cfProxyPort, 0, "Port that the Proxy server will listen on.")
+	f.IntVar(&args.metricsListenPort, cfMetricsPort, 0, "Port that the /metrics endpoint will listen on.")
+	f.StringVar(&args.path, cfConfig, "", "Path to Trickster Config File")
 
 	f.Parse(arguments)
 
-	if len(origin) > 0 {
-		c.DefaultOriginURL = origin
+	return args
+}
+
+// loadConfigurationFile gets the arguments passed to the executable and reads
+// the basic flags necessary to identify the configuration file. It then loads
+// the configuration file.
+func loadConfigurationFile(c *Config, a args) error {
+	// If the config file is not specified on the cmdline then try the default
+	// location to load the config file.  If the default config does not exist
+	// then move on, no big deal.
+	if a.path != "" {
+		if err := c.LoadFile(a.path); err != nil {
+			return err
+		}
+	} else {
+		_, err := os.Open(c.Main.ConfigFile)
+		if err == nil {
+			if err := c.LoadFile(c.Main.ConfigFile); err != nil {
+				return err
+			}
+		}
 	}
-	if proxyListenPort > 0 {
-		c.ProxyServer.ListenPort = proxyListenPort
-	}
-	if metricsListenPort > 0 {
-		c.Metrics.ListenPort = metricsListenPort
-	}
+
+	return nil
 }

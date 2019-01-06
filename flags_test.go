@@ -29,7 +29,7 @@ func TestLoadFlags(t *testing.T) {
 	}
 
 	// it should read command line flags
-	loadFlags(&c, a)
+	loadConfiguration(&c, a)
 
 	if c.DefaultOriginURL != a[1] {
 		t.Errorf("wanted \"%s\". got \"%s\".", a[1], c.DefaultOriginURL)
